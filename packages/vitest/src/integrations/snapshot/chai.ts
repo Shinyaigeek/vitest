@@ -1,13 +1,31 @@
 import type { Assertion, ChaiPlugin } from '@vitest/expect'
 import type { Test } from '@vitest/runner'
+import type { SnapshotMatcherInvocation } from '@vitest/runner/types'
 import { equals, iterableEquality, subsetEquality } from '@vitest/expect'
 import { getNames } from '@vitest/runner/utils'
+import { parseSingleStack } from '@vitest/utils/source-map'
 import {
   addSerializer,
   SnapshotClient,
   stripSnapshotIndentation,
 } from '@vitest/snapshot'
 import { createAssertionMessage, recordAsyncExpect } from '../../../../expect/src/utils'
+
+/**
+ * Error used specifically for capturing the call site stack trace
+ * of snapshot matcher invocations for location tracking purposes.
+ * 
+ * This error is created at the exact moment a snapshot matcher is called
+ * to capture the stack trace with accurate line and column information.
+ * The stack trace is then parsed to determine where in the test file
+ * the snapshot matcher was invoked.
+ */
+export class SnapshotMatcherStackTraceError extends Error {
+  constructor() {
+    super('SNAPSHOT_MATCHER_STACK_TRACE_CAPTURE')
+    this.name = 'SnapshotMatcherStackTraceError'
+  }
+}
 
 let _client: SnapshotClient
 
@@ -49,6 +67,70 @@ function getTestNames(test: Test) {
     filepath: test.file.filepath,
     name: getNames(test).slice(1).join(' > '),
     testId: test.id,
+  }
+}
+
+function recordSnapshotInvocation(
+  test: Test,
+  matcher: SnapshotMatcherInvocation['matcher'],
+  passed: boolean,
+  error?: Error,
+) {
+  try {
+    // Get location from error stack trace using proper stack parsing
+    const stack = error?.stack
+    let line = 0
+    let column = 0
+
+    if (stack) {
+      // Parse the stack to find the test file location
+      const stackLines = stack.split('\n')
+      for (const stackLine of stackLines) {
+        const parsed = parseSingleStack(stackLine)
+        if (parsed && parsed.file === test.file.filepath) {
+          line = parsed.line
+          column = parsed.column
+          break
+        }
+      }
+    }
+
+    const invocation: SnapshotMatcherInvocation = {
+      matcher,
+      location: { line, column },
+      name: getNames(test).slice(1).join(' > '),
+      passed,
+    }
+
+    // Record the invocation if the test context has the recording method
+    const context = test.context
+    if (context && typeof context._recordSnapshotInvocation === 'function') {
+      context._recordSnapshotInvocation(invocation)
+    }
+  }
+  catch (recordError) {
+    // Don't let snapshot recording errors break the test
+    console.warn('Failed to record snapshot invocation:', recordError)
+  }
+}
+
+function recordSnapshotInvocationWithResult(
+  test: Test,
+  matcher: SnapshotMatcherInvocation['matcher'],
+  assertionFn: () => void,
+) {
+  // Capture the call site stack trace before any async operations
+  const callSiteError = new SnapshotMatcherStackTraceError()
+  
+  try {
+    assertionFn()
+    // Record the successful invocation using the captured call site
+    recordSnapshotInvocation(test, matcher, true, callSiteError)
+  }
+  catch (assertError) {
+    // Record the failed invocation using the captured call site
+    recordSnapshotInvocation(test, matcher, false, callSiteError)
+    throw assertError
   }
 }
 
