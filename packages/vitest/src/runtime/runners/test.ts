@@ -3,6 +3,7 @@ import type {
   CancelReason,
   File,
   ImportDuration,
+  SnapshotMatcherInvocation,
   Suite,
   Task,
   Test,
@@ -34,6 +35,7 @@ export class VitestTestRunner implements VitestRunner {
   private cancelRun = false
 
   private assertionsErrors = new WeakMap<Readonly<Task>, Error>()
+  private snapshotInvocations = new WeakMap<Readonly<Test>, SnapshotMatcherInvocation[]>()
 
   public pool: string = this.workerState.ctx.pool
 
@@ -104,6 +106,14 @@ export class VitestTestRunner implements VitestRunner {
       test.result!.heap = process.memoryUsage().heapUsed
     }
 
+    // Always add snapshot invocations to test result, regardless of test outcome
+    if (test.type === 'test') {
+      const snapshotInvocations = this.snapshotInvocations.get(test)
+      if (snapshotInvocations && snapshotInvocations.length > 0) {
+        test.result!.snapshotMatchers = snapshotInvocations
+      }
+    }
+
     this.workerState.current = test.suite || test.file
   }
 
@@ -148,6 +158,12 @@ export class VitestTestRunner implements VitestRunner {
   onBeforeTryTask(test: Task): void {
     clearModuleMocks(this.config)
     this.snapshotClient.clearTest(test.file.filepath, test.id)
+
+    // Clear snapshot invocations for retry/re-run
+    if (test.type === 'test') {
+      this.snapshotInvocations.set(test, [])
+    }
+
     setState(
       {
         assertionCalls: 0,
@@ -195,6 +211,10 @@ export class VitestTestRunner implements VitestRunner {
         new Error('expected any number of assertion, but got none'),
       )
     }
+
+    // Initialize snapshot invocations for this test
+    this.snapshotInvocations.set(context.task, [])
+
     let _expect: ExpectStatic | undefined
     Object.defineProperty(context, 'expect', {
       get() {
