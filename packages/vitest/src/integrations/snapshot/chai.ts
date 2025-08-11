@@ -164,13 +164,17 @@ export const SnapshotPlugin: ChaiPlugin = (chai, utils) => {
           properties = undefined
         }
         const errorMessage = utils.flag(this, 'message')
-        getSnapshotClient().assert({
-          received: expected,
-          message,
-          isInline: false,
-          properties,
-          errorMessage,
-          ...getTestNames(test),
+
+        // Record snapshot invocation with result tracking
+        recordSnapshotInvocationWithResult(test, 'toMatchSnapshot', () => {
+          getSnapshotClient().assert({
+            received: expected,
+            message,
+            isInline: false,
+            properties,
+            errorMessage,
+            ...getTestNames(test),
+          })
         })
       },
     )
@@ -190,6 +194,9 @@ export const SnapshotPlugin: ChaiPlugin = (chai, utils) => {
       const test = getTest('toMatchFileSnapshot', this)
       const errorMessage = utils.flag(this, 'message')
 
+      // Capture the call site stack trace before async operations
+      const callSiteError = new SnapshotMatcherStackTraceError()
+      
       const promise = getSnapshotClient().assertRaw({
         received: expected,
         message,
@@ -199,7 +206,18 @@ export const SnapshotPlugin: ChaiPlugin = (chai, utils) => {
         },
         errorMessage,
         ...getTestNames(test),
-      })
+      }).then(
+        (result) => {
+          // Record successful invocation using the captured call site
+          recordSnapshotInvocation(test, 'toMatchFileSnapshot', true, callSiteError)
+          return result
+        },
+        (assertError) => {
+          // Record failed invocation using the captured call site
+          recordSnapshotInvocation(test, 'toMatchFileSnapshot', false, callSiteError)
+          throw assertError
+        },
+      )
 
       return recordAsyncExpect(
         test,
@@ -270,11 +288,15 @@ export const SnapshotPlugin: ChaiPlugin = (chai, utils) => {
       const test = getTest('toThrowErrorMatchingSnapshot', this)
       const promise = utils.flag(this, 'promise') as string | undefined
       const errorMessage = utils.flag(this, 'message')
-      getSnapshotClient().assert({
-        received: getError(expected, promise),
-        message,
-        errorMessage,
-        ...getTestNames(test),
+
+      // Record snapshot invocation with result tracking
+      recordSnapshotInvocationWithResult(test, 'toThrowErrorMatchingSnapshot', () => {
+        getSnapshotClient().assert({
+          received: getError(expected, promise),
+          message,
+          errorMessage,
+          ...getTestNames(test),
+        })
       })
     },
   )
