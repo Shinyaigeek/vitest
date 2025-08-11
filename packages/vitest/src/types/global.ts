@@ -1,5 +1,6 @@
 import type { ExpectStatic, PromisifyAssertion, Tester } from '@vitest/expect'
 import type { Plugin as PrettyFormatPlugin } from '@vitest/pretty-format'
+import type { SnapshotMatcherInvocation } from '@vitest/runner'
 import type { SnapshotState } from '@vitest/snapshot'
 import type { BenchmarkResult } from '../runtime/types/benchmark'
 import type { UserConsoleLog } from './general'
@@ -120,6 +121,8 @@ declare module '@vitest/runner' {
     readonly expect: ExpectStatic
     /** @internal */
     _local: boolean
+    /** @internal */
+    _recordSnapshotInvocation: (invocation: SnapshotMatcherInvocation) => void
   }
 
   interface TaskMeta {
