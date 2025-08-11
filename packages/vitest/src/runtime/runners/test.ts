@@ -229,6 +229,19 @@ export class VitestTestRunner implements VitestRunner {
         return _expect != null
       },
     })
+
+    // Add method to record snapshot matcher invocations
+    Object.defineProperty(context, '_recordSnapshotInvocation', {
+      value: (invocation: SnapshotMatcherInvocation) => {
+        const invocations = this.snapshotInvocations.get(context.task)
+        if (invocations) {
+          invocations.push(invocation)
+        }
+      },
+      enumerable: false,
+      configurable: true,
+    })
+
     return context
   }
 
