@@ -26,6 +26,7 @@ export type {
   RuntimeContext,
   SequenceHooks,
   SequenceSetupFiles,
+  SnapshotMatcherInvocation,
   Suite,
   SuiteAPI,
   SuiteCollector,

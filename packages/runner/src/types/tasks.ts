@@ -112,6 +112,28 @@ export interface TaskMeta {}
 /**
  * The result of calling a task.
  */
+export interface SnapshotMatcherInvocation {
+  /**
+   * Name of the snapshot matcher excluding inline matcher (e.g., 'toMatchSnapshot', 'toMatchFileSnapshot', 'toMatchImageSnapshot')
+   */
+  matcher: 'toMatchSnapshot' | 'toMatchFileSnapshot' | 'toMatchImageSnapshot' | 'toThrowErrorMatchingSnapshot'
+  /**
+   * Location where the matcher was invoked in the test file
+   */
+  location: {
+    line: number
+    column: number
+  }
+  /**
+   * Test name where the snapshot matcher was invoked
+   */
+  name: string
+  /**
+   * Whether the snapshot matcher passed or failed
+   */
+  passed: boolean
+}
+
 export interface TaskResult {
   /**
    * State of the task. Inherits the `task.mode` during collection.
@@ -125,6 +147,11 @@ export interface TaskResult {
    * if `expect.soft()` failed multiple times or `retry` was triggered.
    */
   errors?: TestError[]
+  /**
+   * Snapshot matcher invocations that occurred during test execution.
+   * This includes both passed and failed snapshot assertions.
+   */
+  snapshotMatchers?: SnapshotMatcherInvocation[]
   /**
    * How long in milliseconds the task took to run.
    */
