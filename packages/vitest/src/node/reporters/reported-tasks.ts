@@ -4,6 +4,7 @@ import type {
   Test as RunnerTestCase,
   File as RunnerTestFile,
   Suite as RunnerTestSuite,
+  SnapshotMatcherInvocation,
   TaskMeta,
   TestAnnotation,
 } from '@vitest/runner'
@@ -171,11 +172,13 @@ export class TestCase extends ReportedTaskImplementation {
       return {
         state,
         errors: result.errors as TestError[] | undefined,
+        snapshotMatchers: result.snapshotMatchers || undefined,
       } satisfies TestResultPassed
     }
     return {
       state,
       errors: (result.errors || []) as TestError[],
+      snapshotMatchers: result.snapshotMatchers || undefined,
     } satisfies TestResultFailed
   }
 
@@ -548,6 +551,11 @@ export interface TestResultPassed {
    * **Note**: If test was retried successfully, errors will still be reported.
    */
   readonly errors: ReadonlyArray<TestError> | undefined
+  /**
+   * Snapshot matcher invocations that occurred during the test execution.
+   * This includes information about all snapshot matchers used in the test.
+   */
+  readonly snapshotMatchers: ReadonlyArray<SnapshotMatcherInvocation> | undefined
 }
 
 export interface TestResultFailed {
@@ -559,6 +567,11 @@ export interface TestResultFailed {
    * Errors that were thrown during the test execution.
    */
   readonly errors: ReadonlyArray<TestError>
+  /**
+   * Snapshot matcher invocations that occurred during the test execution.
+   * This includes information about all snapshot matchers used in the test.
+   */
+  readonly snapshotMatchers: ReadonlyArray<SnapshotMatcherInvocation> | undefined
 }
 
 export interface TestResultSkipped {
