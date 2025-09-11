@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { Task } from '@vitest/runner'
+import type { File, SnapshotMatcherInvocation, Task } from '@vitest/runner'
 import type CodeMirror from 'codemirror'
-import type { File, TestAnnotation, TestError } from 'vitest'
+import type { TestAnnotation, TestError } from 'vitest'
 import { createTooltip, destroyTooltip } from 'floating-vue'
 import { getAttachmentUrl, sanitizeFilePath } from '~/composables/attachments'
 import { client, isReport } from '~/composables/client'
@@ -9,6 +9,7 @@ import { finished } from '~/composables/client/state'
 import { codemirrorRef } from '~/composables/codemirror'
 import { openInEditor } from '~/composables/error'
 import { columnNumber, lineNumber } from '~/composables/params'
+import SnapshotMatcher from './SnapshotMatcher.vue'
 
 const props = defineProps<{
   file?: File
@@ -114,6 +115,95 @@ const annotations = computed(() => {
   props.file?.tasks.forEach(addAnnotations)
   return annotations
 })
+
+const snapshotMatchers = computed(() => {
+  const matchers: Array<SnapshotMatcherInvocation & { taskName: string; id: string }> = []
+  function addSnapshotMatchers(task: Task) {
+    if (task.type === 'test' && task.result?.snapshotMatchers) {
+      const taskName = task.name
+      task.result.snapshotMatchers.forEach((matcher, index) => {
+        // Only show successful snapshots
+        if (matcher.passed) {
+          matchers.push({
+            ...matcher,
+            taskName,
+            id: `${task.id}-${index}`, // Unique ID for each matcher
+          })
+        }
+      })
+    }
+    if (task.type === 'suite') {
+      task.tasks.forEach(addSnapshotMatchers)
+    }
+  }
+  props.file?.tasks.forEach(addSnapshotMatchers)
+  return matchers
+})
+
+// State-managed snapshot components that will be rendered in template
+const activeSnapshotComponents = ref<Array<{
+  id: string
+  matcher: SnapshotMatcherInvocation & { taskName: string; id: string }
+  widget?: CodeMirror.LineWidget
+  handle?: CodeMirror.LineHandle
+}>>([])
+
+// Function to create widget using a component ref
+function createSnapshotWidget(matcher: SnapshotMatcherInvocation & { taskName: string; id: string }, componentElement: HTMLElement) {
+  const { line } = matcher.location
+  if (line === 0 || !codemirrorRef.value) { return null }
+
+  return {
+    widget: codemirrorRef.value.addLineWidget(line - 1, componentElement),
+    handle: codemirrorRef.value.addLineClass(line - 1, 'wrap', 'bg-green-500/5'),
+  }
+}
+
+// Watch for changes in snapshot matchers and update state
+watch(snapshotMatchers, (newMatchers) => {
+  if (!finished.value) { return }
+
+  // Clear existing widgets but keep component state
+  activeSnapshotComponents.value.forEach((component) => {
+    if (component.widget) { component.widget.clear() }
+    if (component.handle) { codemirrorRef.value?.removeLineClass(component.handle, 'wrap') }
+  })
+
+  // Update component state
+  activeSnapshotComponents.value = newMatchers.map(matcher => ({
+    id: matcher.id,
+    matcher,
+  }))
+}, { flush: 'post' })
+
+// Create widgets after components are rendered
+function createSnapshotWidgets() {
+  if (!codemirrorRef.value || !finished.value) { return }
+
+  nextTick(() => {
+    activeSnapshotComponents.value.forEach((component) => {
+      if (!component.widget) {
+        // Find the component element by its data attribute
+        const element = document.querySelector(`[data-snapshot-id="${component.id}"]`) as HTMLElement
+        if (element) {
+          // Clone the element to move it to CodeMirror
+          const clonedElement = element.cloneNode(true) as HTMLElement
+          const widgetData = createSnapshotWidget(component.matcher, clonedElement)
+          if (widgetData) {
+            component.widget = widgetData.widget
+            component.handle = widgetData.handle
+
+            // Add to global tracking arrays for cleanup
+            if (widgetData.widget) { widgets.push(widgetData.widget) }
+            if (widgetData.handle) { handles.push(widgetData.handle) }
+          }
+        }
+      }
+    })
+  })
+}
+
+watch(activeSnapshotComponents, createSnapshotWidgets, { deep: true })
 const widgets: CodeMirror.LineWidget[] = []
 const handles: CodeMirror.LineHandle[] = []
 const listeners: [el: HTMLSpanElement, l: EventListener, t: () => void][] = []
@@ -378,13 +468,25 @@ onBeforeUnmount(clearListeners)
 </script>
 
 <template>
-  <CodeMirrorContainer
-    ref="editor"
-    v-model="code"
-    h-full
-    v-bind="{ lineNumbers: true, readOnly: isReport, saving }"
-    :mode="ext"
-    data-testid="code-mirror"
-    @save="onSave"
-  />
+  <div class="relative h-full">
+    <CodeMirrorContainer
+      ref="editor"
+      v-model="code"
+      h-full
+      v-bind="{ lineNumbers: true, readOnly: isReport, saving }"
+      :mode="ext"
+      data-testid="code-mirror"
+      @save="onSave"
+    />
+
+    <div class="hidden">
+      <SnapshotMatcher
+        v-for="component in activeSnapshotComponents"
+        :key="component.id"
+        :matcher="component.matcher"
+        :file="file!"
+        :data-snapshot-id="component.id"
+      />
+    </div>
+  </div>
 </template>

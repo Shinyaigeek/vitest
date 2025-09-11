@@ -114,9 +114,9 @@ export interface TaskMeta {}
  */
 export interface SnapshotMatcherInvocation {
   /**
-   * Name of the snapshot matcher excluding inline matcher (e.g., 'toMatchSnapshot', 'toMatchFileSnapshot', 'toMatchImageSnapshot')
+   * Name of the snapshot matcher (e.g., 'toMatchSnapshot', 'toMatchFileSnapshot', 'toMatchInlineSnapshot', etc.)
    */
-  matcher: 'toMatchSnapshot' | 'toMatchFileSnapshot' | 'toMatchImageSnapshot' | 'toThrowErrorMatchingSnapshot'
+  matcher: 'toMatchSnapshot' | 'toMatchFileSnapshot' | 'toMatchImageSnapshot' | 'toThrowErrorMatchingSnapshot' | 'toMatchInlineSnapshot' | 'toThrowErrorMatchingInlineSnapshot'
   /**
    * Location where the matcher was invoked in the test file
    */
@@ -132,6 +132,19 @@ export interface SnapshotMatcherInvocation {
    * Whether the snapshot matcher passed or failed
    */
   passed: boolean
+  /**
+   * Snapshot metadata for identification (content fetched on-demand)
+   */
+  snapshot?: {
+    /**
+     * The snapshot key used for this assertion
+     */
+    key: string
+    /**
+     * The number/count of this snapshot in the test
+     */
+    count: number
+  }
 }
 
 export interface TaskResult {

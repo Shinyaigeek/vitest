@@ -105,6 +105,11 @@ export class Vitest {
   /** @internal */ runner!: ModuleRunner
   /** @internal */ _testRun: TestRun = undefined!
   /** @internal */ _resolver!: VitestResolver
+  /** @internal */ snapshotContentStore?: {
+    store: (filepath: string, testName: string, snapshotKey: string, content: { expected: string; actual: string; count: number }) => void
+    get: (filepath: string, testName: string, snapshotKey: string) => { expected: string; actual: string; count: number } | undefined
+    clear: (filepath: string) => void
+  }
 
   private isFirstRun = true
   private restartsCount = 0

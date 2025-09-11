@@ -71,6 +71,11 @@ export function createMethodsRPC(project: TestProject, options: MethodsOptions =
       const result = await environment.transformRequest(url).catch(handleRollupError)
       return { code: result?.code }
     },
+    storeSnapshotContent(filepath, testName, snapshotKey, content) {
+      if (ctx.snapshotContentStore) {
+        ctx.snapshotContentStore.store(filepath, testName, snapshotKey, content)
+      }
+    },
     async onQueued(file) {
       if (options.collect) {
         ctx.state.collectFiles(project, [file])

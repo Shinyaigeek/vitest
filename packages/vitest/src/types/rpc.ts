@@ -20,6 +20,7 @@ export interface RuntimeRPC {
 
   snapshotSaved: (snapshot: SnapshotResult) => void
   resolveSnapshotPath: (testPath: string) => string
+  storeSnapshotContent: (filepath: string, testName: string, snapshotKey: string, content: { expected: string; actual: string; count: number }) => void
 }
 
 export interface RunnerRPC {

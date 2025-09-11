@@ -3,18 +3,19 @@ import type { Test } from '@vitest/runner'
 import type { SnapshotMatcherInvocation } from '@vitest/runner/types'
 import { equals, iterableEquality, subsetEquality } from '@vitest/expect'
 import { getNames } from '@vitest/runner/utils'
-import { parseSingleStack } from '@vitest/utils/source-map'
 import {
   addSerializer,
   SnapshotClient,
   stripSnapshotIndentation,
 } from '@vitest/snapshot'
+import { parseSingleStack } from '@vitest/utils/source-map'
 import { createAssertionMessage, recordAsyncExpect } from '../../../../expect/src/utils'
+import { rpc } from '../../runtime/rpc'
 
 /**
  * Error used specifically for capturing the call site stack trace
  * of snapshot matcher invocations for location tracking purposes.
- * 
+ *
  * This error is created at the exact moment a snapshot matcher is called
  * to capture the stack trace with accurate line and column information.
  * The stack trace is then parsed to determine where in the test file
@@ -75,6 +76,7 @@ function recordSnapshotInvocation(
   matcher: SnapshotMatcherInvocation['matcher'],
   passed: boolean,
   error?: Error,
+  snapshotData?: { key: string; count: number },
 ) {
   try {
     // Get location from error stack trace using proper stack parsing
@@ -100,6 +102,7 @@ function recordSnapshotInvocation(
       location: { line, column },
       name: getNames(test).slice(1).join(' > '),
       passed,
+      snapshot: snapshotData,
     }
 
     // Record the invocation if the test context has the recording method
@@ -121,16 +124,80 @@ function recordSnapshotInvocationWithResult(
 ) {
   // Capture the call site stack trace before any async operations
   const callSiteError = new SnapshotMatcherStackTraceError()
-  
+
+  // Store the original assert method
+  const snapshotClient = getSnapshotClient()
+  const originalAssert = snapshotClient.assert.bind(snapshotClient)
+
+  let snapshotResult: { key: string; count: number } | undefined
+
+  // Temporarily override the assert method to capture snapshot data
+  snapshotClient.assert = function (options: Parameters<SnapshotClient['assert']>[0]) {
+    try {
+      const result = originalAssert(options)
+
+      // Capture successful snapshot data
+      const snapshotState = snapshotClient.getSnapshotState(options.filepath)
+      const testName = options.name
+      const count = (snapshotState as unknown as { _counters?: Map<string, number> })._counters?.get(testName) || 1
+      const key = `${testName} ${count}`
+
+      snapshotResult = {
+        key,
+        count,
+      }
+
+      // Store snapshot content in memory via RPC
+      try {
+        const expected = (snapshotState as unknown as { _snapshotData?: Record<string, string> })._snapshotData?.[key] || ''
+        rpc().storeSnapshotContent(test.file.filepath, testName, key, {
+          expected,
+          actual: '', // For successful snapshots, actual matches expected
+          count,
+        })
+      }
+      catch (error) {
+        console.warn('Failed to store snapshot content in memory:', error)
+      }
+
+      return result
+    }
+    catch (error) {
+      // Capture failed snapshot data from the error
+      if (error && typeof error === 'object' && 'actual' in error && 'expected' in error) {
+        const snapshotState = snapshotClient.getSnapshotState(options.filepath)
+        const testName = options.name
+        const count = (snapshotState as unknown as { _counters?: Map<string, number> })._counters?.get(testName) || 1
+        const key = `${testName} ${count}`
+
+        snapshotResult = {
+          key,
+          count,
+        }
+
+        // Skip storing failed snapshot content since we don't display failed snapshots
+      }
+      throw error
+    }
+    finally {
+      // Restore the original assert method
+      snapshotClient.assert = originalAssert
+    }
+  }
+
   try {
     assertionFn()
-    // Record the successful invocation using the captured call site
-    recordSnapshotInvocation(test, matcher, true, callSiteError)
+    // Record the successful invocation using the captured call site and snapshot data
+    recordSnapshotInvocation(test, matcher, true, callSiteError, snapshotResult)
   }
   catch (assertError) {
-    // Record the failed invocation using the captured call site
-    recordSnapshotInvocation(test, matcher, false, callSiteError)
+    // Record the failed invocation using the captured call site and snapshot data
+    recordSnapshotInvocation(test, matcher, false, callSiteError, snapshotResult)
     throw assertError
+  }
+  finally {
+    // Ensure the original assert method is restored
+    snapshotClient.assert = originalAssert
   }
 }
 
@@ -196,7 +263,7 @@ export const SnapshotPlugin: ChaiPlugin = (chai, utils) => {
 
       // Capture the call site stack trace before async operations
       const callSiteError = new SnapshotMatcherStackTraceError()
-      
+
       const promise = getSnapshotClient().assertRaw({
         received: expected,
         message,
@@ -208,13 +275,23 @@ export const SnapshotPlugin: ChaiPlugin = (chai, utils) => {
         ...getTestNames(test),
       }).then(
         (result) => {
-          // Record successful invocation using the captured call site
+          // For async operations, we can't easily capture the snapshot data
+          // The UI will need to fall back to the file system approach for file snapshots
           recordSnapshotInvocation(test, 'toMatchFileSnapshot', true, callSiteError)
           return result
         },
         (assertError) => {
-          // Record failed invocation using the captured call site
-          recordSnapshotInvocation(test, 'toMatchFileSnapshot', false, callSiteError)
+          // Try to extract snapshot data from the error if available
+          if (assertError && typeof assertError === 'object' && 'actual' in assertError && 'expected' in assertError) {
+            const snapshotData = {
+              key: file, // Use the file path as the key for file snapshots
+              count: 1, // File snapshots typically have count 1
+            }
+            recordSnapshotInvocation(test, 'toMatchFileSnapshot', false, callSiteError, snapshotData)
+          }
+          else {
+            recordSnapshotInvocation(test, 'toMatchFileSnapshot', false, callSiteError)
+          }
           throw assertError
         },
       )

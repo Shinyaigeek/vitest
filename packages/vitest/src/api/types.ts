@@ -45,6 +45,7 @@ export interface WebSocketHandlers {
   ) => Promise<TransformResultWithSource | undefined>
   readTestFile: (id: string) => Promise<string | null>
   saveTestFile: (id: string, content: string) => Promise<void>
+  getSnapshotContent: (filepath: string, testName: string, matcher: string) => Promise<{ actual: string; expected: string; key: string; count: number } | null>
   rerun: (files: string[], resetTestNamePattern?: boolean) => Promise<void>
   rerunTask: (id: string) => Promise<void>
   updateSnapshot: (file?: File) => Promise<void>
